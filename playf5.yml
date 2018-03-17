@@ -1,0 +1,185 @@
+#!/usr/bin/ansible-playbook --inventory=hosts
+
+---
+# This playbook creates a BIG-IP LTM project from scratch.
+# 1. Provision isolated partition with a separated route domain
+# 2. Setup new IP addresses inside partition
+# 3. Create nodes, pool and virtual server
+# TODO: 
+# 1. Setup another BIG-IP and build cluster with traffic group
+# Author: Lukasz Sedek <lukaszseedek@gmail.com>
+
+- name: F5 ansible playgroud
+  hosts: bigip
+  connection: local
+  gather_facts: yes
+
+  tasks:
+    # If you need use vault, you need to provide --ask-vault-pass parameter to your CLI
+    - name: Include credentials
+      include_vars:
+        file: credentials.yml
+
+    # Include file with project params
+    - name: Include project settings
+      include_vars:
+        file: project.yml
+
+    - name: Check partition variable
+      assert:
+        that:
+          - partition is defined
+          - rd_id is defined
+          - rd_id > 0
+        msg: "'partition' must be defined"
+
+    - name: Check Self IP addresses
+      assert:
+        that:
+          - "'item.address | ipv4' is defined "
+          - "'item.name' is defined" 
+          - "'item.vlan' is defined" 
+          - "'item.netmask' is defined" 
+      with_items: "{{ self_ips }}"
+
+
+    - name: Create route domain
+      bigip_routedomain:
+        name: "{{ partition | mandatory}}"
+        server: "{{ inventory_hostname }}"
+        id: "{{ rd_id }}"
+        description: "name"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        state: "present"
+      delegate_to: localhost
+
+    - name: Create partition using a custom route domain
+      bigip_partition:
+        name: "{{ partition }}"
+        validate_certs: False
+        route_domain: "{{ rd_id }}"
+        description: "Partition description"
+        password: "{{ password }}"
+        user: "{{ username }}"
+        server: "{{ inventory_hostname }}"
+      delegate_to: localhost
+
+    - name: Create VLANs
+      bigip_vlan:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        partition: "{{ partition }}"
+        password: "{{ password }}"
+        validate_certs: False
+        name: "{{ item.name }}"
+        tag: "{{ item.tag }}"
+        tagged_interface: "{{ item.interface }}"
+      with_items: "{{ vlans }}"
+      delegate_to: localhost
+
+
+# Float IP with traffic_group variable
+    - name: Configure Self-IPs local
+      bigip_selfip:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        name: "{{ item.name }}"
+        address: "{{ item.address | ipv4 }}"
+        netmask: "{{ item.netmask | ipaddr('netmask') }}"
+        route_domain: "{{ rd_id }}"
+        partition: "{{ partition }}"
+        vlan: "{{ item.vlan }}"
+        allow_service: "{{ item.allow_service }}"
+      with_items: "{{ self_ips }}" 
+      delegate_to: localhost
+
+    - name: Create nodes
+      bigip_node:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        state: present
+        partition: "{{ partition }}"
+        name: "{{ item.name }}"
+        address: "{{ item.address | ipv4 }}"
+      with_items: "{{ nodes }}"
+      delegate_to: localhost
+
+    - name: Create HTTP monitor
+      bigip_monitor_http:
+        state: present
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        partition: "{{ partition }}"
+        validate_certs: False
+        name: "{{ probe.name | mandatory }}"
+        send: "{{probe.send }}"
+        receive: "{{probe.receive }}"
+      delegate_to: localhost
+
+    - name: Create pool
+      bigip_pool:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        state: present
+        name: "{{ pool_name }}"
+        partition: "{{ partition }}"
+        lb_method: "least-connections-member"
+        monitor_type: single
+        monitors:
+          - "{{ probe.name | mandatory }}"
+      delegate_to: localhost
+
+    - name: Assign member to pool
+      bigip_pool_member:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        pool: "{{ pool_name }}"
+        partition: "{{ partition }}"
+        name: "{{ item.name }}"
+        port: "{{ item.port }}"
+      delegate_to: localhost
+      loop: "{{ nodes }}"
+
+    - name: Create Client SSL profiles
+      bigip_profile_client_ssl:
+        state: present
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        name: "CS_{{ partition }}_CS_VS"
+        partition: "{{ partition }}"
+        ciphers: "!SSLv3:!SSLv2:ECDHE+AES-GCM+SHA256:ECDHE-RSA-AES128-CBC-SHA"
+      delegate_to: localhost
+
+
+    - name: Create Virtual server
+      bigip_virtual_server:
+        server: "{{ inventory_hostname }}"
+        user: "{{ username }}"
+        password: "{{ password }}"
+        validate_certs: False
+        state: present
+        partition: "{{ partition }}"
+        name: "{{ vs.name }}"
+        destination: "{{ vs.destination }}"
+        port: "{{ vs.port }}"
+        pool: "{{ pool_name }}"
+        snat: Automap
+        profiles:
+          - http
+          - tcp
+          - name: "CS_{{ partition }}_CS_VS"
+            context: client-side
+      delegate_to: localhost
+
