@@ -1,5 +1,5 @@
 
-# Project Title
+# F5-Ansible
 
 This small project demonstrate few use cases with F5 BIG-IP and Ansible.
 
@@ -139,16 +139,16 @@ Explanation of all playbooks
 
 ## Contributing
 
-Please read \[CONTRIBUTING.md\](https://gist.github.com/PurpleBooth/b24679402957c63ec426) for details on our code of conduct, and the process for submitting pull requests to us.
+Please read [CONTRIBUTING.md](...) for details on our code of conduct, and the process for submitting pull requests to us.
 
 ## Versioning
 
-I use [SemVer](http://semver.org/) for versioning. For the versions available, see the \[tags on this repository\](https://github.com/your/project/tags). 
+I use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/lukaszsedek/f5-ansible/tags). 
 
 ## Authors
 
-***Lukasz Sedek*** - *author* - \[Lukaszsedek\](https://github.com/lukaszsedek)
+***Lukasz Sedek*** - *author* - [Lukaszsedek](https://github.com/lukaszsedek)
 
 ## License
 
-This project is licensed under the MIT License - see the \[LICENSE.md\](LICENSE.md) file for details
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
